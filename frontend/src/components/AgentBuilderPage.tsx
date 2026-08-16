@@ -608,7 +608,7 @@ export default function AgentBuilderPage() {
                       className="btn btn-accent btn-sm"
                       onClick={handleEditSelectedAgent}
                     >
-                      ✏️ تعديل عبر الدردشة
+                       تعديل عبر الدردشة
                     </button>
                   )}
 
