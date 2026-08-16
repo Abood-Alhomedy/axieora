@@ -66,7 +66,6 @@ async def chat_completion(
     logger.debug("LLM response: %s", content[:500])
     return content
 
-
 async def chat_completion_json(
     system_prompt: str,
     user_message: str,
@@ -80,4 +79,39 @@ async def chat_completion_json(
         temperature=temperature,
         response_format={"type": "json_object"},
     )
-    return json.loads(raw)
+
+    raw = raw.strip()
+
+    logger.info("Raw JSON response: %r", raw[:2000])
+
+    # Remove Markdown code fences if the model added them
+    if raw.startswith("```"):
+        lines = raw.splitlines()
+
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+
+        raw = "\n".join(lines).strip()
+
+    if not raw:
+        raise ValueError(
+            "LLM returned an empty response when JSON was expected."
+        )
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        logger.error("Invalid JSON returned by LLM: %r", raw[:5000])
+        raise ValueError(
+            f"LLM returned invalid JSON: {raw[:1000]}"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Expected JSON object, got {type(data).__name__}"
+        )
+
+    return data
