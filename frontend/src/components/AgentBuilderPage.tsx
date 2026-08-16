@@ -240,16 +240,16 @@ export default function AgentBuilderPage() {
   const activeName = result?.name || selectedAgent?.name || ''
 
   // مكوّن فرعي لأزرار تبويب لوحة النتائج
-  const ResultTabButtons = () => (
-    <div className="devui-tabs tabs" style={{ borderBottom: 'none', marginBottom: 0 }}>
-      <button className={`tab ${resultView === 'yaml' ? 'active' : ''}`} onClick={() => setResultView('yaml')}>
-        YAML
-      </button>
-      <button className={`tab ${resultView === 'code' ? 'active' : ''}`} onClick={() => setResultView('code')}>
-        Python
-      </button>
-    </div>
-  )
+  // const ResultTabButtons = () => (
+  //   <div className="devui-tabs tabs" style={{ borderBottom: 'none', marginBottom: 0 }}>
+  //     <button className={`tab ${resultView === 'yaml' ? 'active' : ''}`} onClick={() => setResultView('yaml')}>
+  //       YAML
+  //     </button>
+  //     <button className={`tab ${resultView === 'code' ? 'active' : ''}`} onClick={() => setResultView('code')}>
+  //       Python
+  //     </button>
+  //   </div>
+  // )
 
   // ── تحديد وضع عرض لوحة الوسط ──
   const showBuilderChat = tab === 'chat' && isCreating
@@ -266,7 +266,7 @@ export default function AgentBuilderPage() {
             💬 اللغة الطبيعية
           </button>
           <button className={`tab ${tab === 'manual' ? 'active' : ''}`} onClick={() => setTab('manual')}>
-            ✏️ يدوي
+             يدوي
           </button>
         </div>
         <div style={{ flex: 1 }} />
@@ -532,7 +532,7 @@ export default function AgentBuilderPage() {
           )}
 
           {/* تفاصيل YAML / الكود — تظهر أسفل دردشة البناء أو بشكل كامل عند عدم الإنشاء */}
-          {hasAgent && result && (
+          {/* {hasAgent && result && (
             <div className="devui-center-full">
               <div className="devui-center-header">
 
@@ -588,7 +588,7 @@ export default function AgentBuilderPage() {
                 )}
               </div>
             </div>
-          )}
+          )} */}
 
           {hasAgent && selectedAgent && !result && (
             <div className="devui-center-full">
@@ -601,7 +601,7 @@ export default function AgentBuilderPage() {
                 </div>
 
                 <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                  <ResultTabButtons />
+                  {/* <ResultTabButtons /> */}
 
                   {!isCreating && (
                     <button
@@ -621,7 +621,7 @@ export default function AgentBuilderPage() {
                 </div>
               </div>
 
-              <div className="devui-center-body">
+              {/* <div className="devui-center-body">
                 {resultView === 'yaml' ? (
                   <pre className="code-block">
                     {typeof selectedAgent.definition === 'string'
@@ -631,7 +631,7 @@ export default function AgentBuilderPage() {
                 ) : (
                   <pre className="code-block">{selectedAgent.code}</pre>
                 )}
-              </div>
+              </div> */}
             </div>
           )}
         </div>
