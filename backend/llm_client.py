@@ -39,20 +39,23 @@ def reset_client() -> None:
     global _client
     _client = None
 
-
+# استبدل دالة chat_completion الحالية بهذا الكود:
 async def chat_completion(
     system_prompt: str,
     user_message: str,
     *,
     temperature: float = 0.3,
     response_format: dict | None = None,
-) -> str:
-    """Send a chat completion request and return the assistant message text."""
+    tools: list | None = None,
+    messages_history: list | None = None
+    ):
     client = get_client()
-    messages = [
+    
+    messages = messages_history or [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_message},
     ]
+    
     kwargs: dict = {
         "model": OPENROUTER_MODEL,
         "messages": messages,
@@ -60,12 +63,18 @@ async def chat_completion(
     }
     if response_format:
         kwargs["response_format"] = response_format
+    if tools:
+        kwargs["tools"] = tools
 
     resp = await client.chat.completions.create(**kwargs)
-    content = resp.choices[0].message.content or ""
-    logger.debug("LLM response: %s", content[:500])
-    return content
+    message = resp.choices[0].message
 
+    logger.info("MODEL: %s", OPENROUTER_MODEL)
+    logger.info("MESSAGE CONTENT: %r", message.content)
+    logger.info("TOOL CALLS: %r", message.tool_calls)
+    logger.info("FINISH REASON: %s", resp.choices[0].finish_reason)
+
+    return message
 async def chat_completion_json(
     system_prompt: str,
     user_message: str,
@@ -73,14 +82,15 @@ async def chat_completion_json(
     temperature: float = 0.2,
 ) -> dict:
     """Chat completion that returns parsed JSON."""
-    raw = await chat_completion(
+
+    message = await chat_completion(
         system_prompt,
         user_message,
         temperature=temperature,
         response_format={"type": "json_object"},
     )
 
-    raw = raw.strip()
+    raw = message.content or ""
 
     logger.info("Raw JSON response: %r", raw[:2000])
 
@@ -104,7 +114,10 @@ async def chat_completion_json(
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        logger.error("Invalid JSON returned by LLM: %r", raw[:5000])
+        logger.error(
+            "Invalid JSON returned by LLM: %r",
+            raw[:5000],
+        )
         raise ValueError(
             f"LLM returned invalid JSON: {raw[:1000]}"
         ) from exc

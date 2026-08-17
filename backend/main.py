@@ -37,6 +37,12 @@ from orchestrator import (
     edit_agent,
     edit_workflow,
 )
+import json
+import Tools.gmail # لتسجيل أدوات جي ميل
+from Tools.base import ToolRegistry
+from Tools.oauth import router as oauth_router, USER_TOKENS
+
+# أضف مسارات الـ OAuth للتطبيق
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,7 +52,7 @@ app = FastAPI(
     description="Natural-language powered Agent & Workflow creation using Microsoft Agent Framework Skills",
     version="0.1.0",
 )
-
+app.include_router(oauth_router)
 # CORS for frontend
 app.add_middleware(
     CORSMiddleware,
@@ -247,36 +253,68 @@ async def run_agent(name: str, body: dict):
         raise HTTPException(400, "message is required")
 
     async def generate() -> AsyncGenerator[str, None]:
-        """Stream agent response as SSE."""
         try:
-            # Build conversation messages
-            messages_text = ""
-            if history:
-                for msg in history[-10:]:  # last 10 turns
-                    role = msg.get("role", "user")
-                    content = msg.get("content", "")
-                    messages_text += f"\n[{role}]: {content}"
-                messages_text += f"\n[user]: {user_message}"
-            else:
-                messages_text = user_message
+            agent_tool_ids = data.get("tools", [])
 
-            response = await chat_completion(
-                instructions,
-                messages_text,
+            all_tools = ToolRegistry.get_all_llm_schemas()
+
+            llm_tools = [
+                tool
+                for tool in all_tools
+                if tool["function"]["name"] in agent_tool_ids
+            ]
+                        
+            messages = [{"role": "system", "content": instructions}]
+            if history:
+                messages.extend(history[-10:])
+            if user_message:
+                messages.append({"role": "user", "content": user_message})
+
+            # الاستدعاء الأول
+            response_message = await chat_completion(
+                instructions, "", 
                 temperature=data.get("temperature", 0.7),
+                tools=llm_tools,
+                messages_history=messages
             )
 
-            # Stream word-by-word for UX
-            words = response.split()
-            buffer = ""
-            for i, word in enumerate(words):
-                buffer += word + " "
-                if i % 3 == 2 or i == len(words) - 1:
-                    yield f"data: {json.dumps({'type': 'token', 'content': buffer})}\n\n"
-                    buffer = ""
-                    await asyncio.sleep(0.02)
+            # إذا طلب استخدام أداة
+            if hasattr(response_message, 'tool_calls') and response_message.tool_calls:
+                # تحويل الكائن إلى قاموس لإضافته للسجل
+                messages.append(response_message.model_dump())
+                
+                for tool_call in response_message.tool_calls:
+                    tool_id = tool_call.function.name
+                    args = json.loads(tool_call.function.arguments)
+                    
+                    yield f"data: {json.dumps({'type': 'token', 'content': f'\\n[جاري تشغيل: {tool_id}...]\\n'})}\n\n"
+                    
+                    tool_record = ToolRegistry.get_tool(tool_id)
+                    if tool_record:
+                        # جلب التوكن الخاص بالمستخدم (استخدمنا test_user للتجربة)
+                        access_token = USER_TOKENS.get("test_user")
+                        
+                        result = await tool_record["executor"](
+                            args,
+                            context={"access_token": access_token},
+                        )
+                        
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(result)
+                        })
+                
+                # الاستدعاء الثاني بالنتيجة
+                final_message = await chat_completion(
+                    instructions, "",
+                    messages_history=messages,
+                    tools=llm_tools
+                )
+                yield f"data: {json.dumps({'type': 'done', 'content': final_message.content})}\n\n"
+            else:
+                yield f"data: {json.dumps({'type': 'done', 'content': response_message.content})}\n\n"
 
-            yield f"data: {json.dumps({'type': 'done', 'content': response})}\n\n"
         except Exception as exc:
             yield f"data: {json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
 

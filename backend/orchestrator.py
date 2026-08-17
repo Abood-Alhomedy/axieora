@@ -9,7 +9,7 @@ This module implements the core logic that:
 """
 
 from __future__ import annotations
-
+from Tools.base import ToolRegistry
 import json
 import logging
 import textwrap
@@ -202,19 +202,63 @@ IMPORTANT – Language Rule:
 - "description" and "instructions" MUST be written in the SAME language as the
   user's request. If the user writes in Japanese, respond in Japanese. If in
   English, respond in English.
-- "name" is always snake_case ASCII.
+- "name" is always snake_case ASCII.## Available Tools
+
+The following tools are available to agents:
+
+{AVAILABLE_TOOLS}
+
+When creating an agent:
+- Select only tools that are actually required by the user's request.
+- The "tools" field must contain the tool IDs exactly as provided.
+- Never invent tool IDs.
+- If no tool is required, return an empty tools list.
+
 """
 
 
 async def create_agent_from_prompt(prompt: str) -> AgentCreateResponse:
     """Create an agent from a natural-language prompt."""
+
     # Load skill context for best practices
     skill_instructions = _load_skill("agent-creator")
-    schema_ref = _load_skill_resource("agent-creator", "references/AGENT_SCHEMA.md")
+    schema_ref = _load_skill_resource(
+        "agent-creator",
+        "references/AGENT_SCHEMA.md"
+    )
 
-    system = f"{_AGENT_SYSTEM_PROMPT}\n\n## Skill Instructions\n{skill_instructions}\n\n## Schema Reference\n{schema_ref}"
+    # Get all registered tools
+    tool_catalog = "\n".join(
+        f"- {tool['function']['name']}: "
+        f"{tool['function']['description']}"
+        for tool in ToolRegistry.get_all_llm_schemas()
+    )
 
-    data = await chat_completion_json(system, f"Create an agent for: {prompt}")
+    if not tool_catalog:
+        tool_catalog = "- No tools are currently registered."
+
+    system = f"""
+{_AGENT_SYSTEM_PROMPT}
+
+## Available Tools
+
+{tool_catalog}
+
+## Skill Instructions
+
+{skill_instructions}
+
+## Schema Reference
+
+{schema_ref}
+"""
+
+    logger.info("Available tools for agent creation:\n%s", tool_catalog)
+
+    data = await chat_completion_json(
+        system,
+        f"Create an agent for: {prompt}"
+    )
 
     definition = AgentDefinition(**data)
     return await _finalize_agent(definition)
@@ -267,7 +311,7 @@ async def _finalize_agent(definition: AgentDefinition) -> AgentCreateResponse:
 
     # Write agent.yaml
     yaml_data = definition.model_dump()
-    yaml_data["tools"] = [t.model_dump() for t in definition.tools] if definition.tools else []
+    yaml_data["tools"] = definition.tools 
     yaml_path = agent_dir / "agent.yaml"
     yaml_path.write_text(yaml.dump(yaml_data, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
@@ -293,12 +337,7 @@ def _generate_agent_code(defn: AgentDefinition) -> str:
     tools_import = ""
     tools_list = ""
     if defn.tools:
-        tools_import = "\nfrom agent_framework.tools import Tool"
-        tool_defs = []
-        for t in defn.tools:
-            desc = t.description.replace('"', '\\"') if t.description else t.name
-            tool_defs.append(f'    Tool(name="{t.name}", description="{desc}"),')
-        tools_list = "\nTOOLS = [\n" + "\n".join(tool_defs) + "\n]\n"
+        tools_list = "\nTOOLS = " + repr(defn.tools) + "\n"
 
     instructions_escaped = defn.instructions.replace('"""', '\\"\\"\\"')
 

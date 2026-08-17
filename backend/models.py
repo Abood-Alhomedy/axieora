@@ -7,13 +7,6 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
-# ---------------------------------------------------------------------------
-# Agent models
-# ---------------------------------------------------------------------------
-class AgentTool(BaseModel):
-    name: str
-    description: str = ""
-
 
 class AgentDefinition(BaseModel):
     """Declarative agent definition (mirrors agent.yaml)."""
@@ -22,7 +15,7 @@ class AgentDefinition(BaseModel):
     description: str = Field(..., max_length=256)
     instructions: str = Field(..., min_length=10, max_length=32_000)
     model: str = "gpt-4o"
-    tools: list[AgentTool] = []
+    tools: list[str] = []
     temperature: float = 0.7
 
 
