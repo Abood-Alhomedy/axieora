@@ -6,6 +6,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from typing import Optional, List, Dict, Any
+import datetime
 
 
 class AgentDefinition(BaseModel):
@@ -99,7 +101,37 @@ class ValidationResult(BaseModel):
     valid: bool
     errors: list[str] = []
 
-
+# 1. Detailed Task State
+class TaskState(BaseModel):
+    goal: Optional[str] = None
+    integrations: list[str] = Field(default_factory=list)
+    trigger: Optional[dict] = None
+    conditions: list[dict] = Field(default_factory=list)
+    actions: list[dict] = Field(default_factory=list)
+    approval_policy: Optional[str] = None
+    schedule: Optional[dict] = None
+    output_requirements: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    missing_requirements: list[str] = Field(default_factory=list)
+    proposed_plan: Optional[dict] = None
+    status: str = "gathering_requirements"
+# 2. Persistence Models (Can be mapped to DB/Redis later)
+class ChatMessage(BaseModel):
+    id: str
+    session_id: str
+    role: str
+    content: str
+    tool_calls: list[dict] = Field(default_factory=list)
+class ChatSession(BaseModel):
+    id: str
+    status: str = "active"
+    task_state: TaskState = Field(default_factory=TaskState)
+    created_at: str
+    updated_at: str
+# 3. API Request Model (No longer trusts frontend with state)
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str
 # Rebuild forward-ref models
 AgentCreateResponse.model_rebuild()
 WorkflowCreateResponse.model_rebuild()

@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  createAgentFromPrompt,
+  sendCopilotMessage, // ← أضف هذا
+  // ... باقي الاستيرادات
+} from '../api/client'
+import {
+
   createAgentFromDefinition,
   editAgent,
   listAgents,
@@ -108,7 +112,54 @@ export default function AgentBuilderPage() {
     setBuilderInput('')
   }
 
-  // ── إرسال رسالة إلى دردشة بناء الوكيل ──
+  // // ── إرسال رسالة إلى دردشة بناء الوكيل ──
+  // const handleBuilderSend = async () => {
+  //   if (!builderInput.trim() || loading) return
+  //   const userMsg: BuilderMessage = { role: 'user', content: builderInput.trim() }
+  //   setBuilderMessages(prev => [...prev, userMsg])
+  //   setBuilderInput('')
+  //   setLoading(true)
+
+  //   const currentName = result?.name || selectedAgent?.name
+
+  //   try {
+  //     let res: AgentCreateResponse
+  //     if (!currentName) {
+  //       res = await createAgentFromPrompt(userMsg.content)
+  //     } else {
+  //       res = await editAgent(currentName, userMsg.content)
+  //     }
+
+  //     setResult(res)
+  //     if (res.name) {
+  //       const data = await getAgent(res.name)
+  //       setSelectedAgent(data)
+  //       setMessages([])
+  //       setStreamBuffer('')
+  //     }
+  //     refreshList()
+
+  //     const action = currentName ? 'تحديث' : 'إنشاء'
+  //     const assistantMsg: BuilderMessage = {
+  //       role: 'assistant',
+  //       content: res.validation.valid
+  //         ? `✅ تم ${action} الوكيل «${res.name}» بنجاح.\n\nيمكنك متابعة تعديله من خلال الدردشة. مثال:\n• «اجعل أسلوبه أكثر تهذيبًا»\n• «أضف أداة»\n• «اجعل قيمة Temperature تساوي 0.3»`
+  //         : `⚠️ تم ${action} الوكيل «${res.name}»، ولكن توجد أخطاء في التحقق:\n${res.validation.errors.join('\n')}`,
+  //       agentResult: res,
+  //     }
+  //     setBuilderMessages(prev => [...prev, assistantMsg])
+  //   } catch (e: any) {
+  //     setBuilderMessages(prev => [...prev, {
+  //       role: 'assistant',
+  //       content: `❌ حدث خطأ: ${e.message}`,
+  //     }])
+  //   } finally {
+  //     setLoading(false)
+  //   }
+  // }
+
+   // ── إرسال رسالة إلى دردشة بناء الوكيل ──
+    // ── إرسال رسالة إلى دردشة بناء الوكيل ──
   const handleBuilderSend = async () => {
     if (!builderInput.trim() || loading) return
     const userMsg: BuilderMessage = { role: 'user', content: builderInput.trim() }
@@ -119,31 +170,57 @@ export default function AgentBuilderPage() {
     const currentName = result?.name || selectedAgent?.name
 
     try {
-      let res: AgentCreateResponse
       if (!currentName) {
-        res = await createAgentFromPrompt(userMsg.content)
+        // 1. نحن في وضع إنشاء وكيل جديد (استخدام Copilot التفاعلي)
+        const res = await sendCopilotMessage(userMsg.content)
+
+        const assistantMsg: BuilderMessage = {
+          role: 'assistant',
+          content: res.message, // رسالة الكوبايلوت (قد تكون سؤالاً توضيحياً)
+        }
+        setBuilderMessages(prev => [...prev, assistantMsg])
+
+        // إذا قرر الكوبايلوت أن جميع المتطلبات جاهزة وتم البناء في السيرفر
+        if (res.status === 'building') {
+          setBuilderMessages(prev => [...prev, {
+            role: 'system',
+            content: `✅ تم إنشاء الوكيل بنجاح!`
+          }])
+          
+          // تحديث الواجهة لعرض الوكيل الجديد
+          if (res.agent) {
+             setResult(res.agent)
+             setSelectedAgent({
+               name: res.agent.name,
+               definition: res.agent.definition as unknown as Record<string, unknown>,
+               code: res.agent.code
+             })
+          }
+          refreshList()
+        }
+
       } else {
-        res = await editAgent(currentName, userMsg.content)
-      }
+        // 2. نحن في وضع تعديل وكيل موجود مسبقاً
+        const res = await editAgent(currentName, userMsg.content)
+        
+        setResult(res)
+        if (res.name) {
+          const data = await getAgent(res.name)
+          setSelectedAgent(data)
+          setMessages([])
+          setStreamBuffer('')
+        }
+        refreshList()
 
-      setResult(res)
-      if (res.name) {
-        const data = await getAgent(res.name)
-        setSelectedAgent(data)
-        setMessages([])
-        setStreamBuffer('')
+        const assistantMsg: BuilderMessage = {
+          role: 'assistant',
+          content: res.validation.valid
+            ? `✅ تم تحديث الوكيل «${res.name}» بنجاح.\n\nيمكنك متابعة تعديله من خلال الدردشة. مثال:\n• «اجعل أسلوبه أكثر تهذيبًا»\n• «أضف أداة»\n• «اجعل قيمة Temperature تساوي 0.3»`
+            : `⚠️ تم تحديث الوكيل «${res.name}»، ولكن توجد أخطاء في التحقق:\n${res.validation.errors.join('\n')}`,
+          agentResult: res,
+        }
+        setBuilderMessages(prev => [...prev, assistantMsg])
       }
-      refreshList()
-
-      const action = currentName ? 'تحديث' : 'إنشاء'
-      const assistantMsg: BuilderMessage = {
-        role: 'assistant',
-        content: res.validation.valid
-          ? `✅ تم ${action} الوكيل «${res.name}» بنجاح.\n\nيمكنك متابعة تعديله من خلال الدردشة. مثال:\n• «اجعل أسلوبه أكثر تهذيبًا»\n• «أضف أداة»\n• «اجعل قيمة Temperature تساوي 0.3»`
-          : `⚠️ تم ${action} الوكيل «${res.name}»، ولكن توجد أخطاء في التحقق:\n${res.validation.errors.join('\n')}`,
-        agentResult: res,
-      }
-      setBuilderMessages(prev => [...prev, assistantMsg])
     } catch (e: any) {
       setBuilderMessages(prev => [...prev, {
         role: 'assistant',

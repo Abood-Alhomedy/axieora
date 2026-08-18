@@ -7,8 +7,13 @@ This module implements the core logic that:
 4. Runs validation (in-process)
 5. Persists results
 """
-
 from __future__ import annotations
+
+import uuid
+from models import ChatMessage
+from models import ChatSession
+from datetime import datetime
+from models import TaskState
 from Tools.base import ToolRegistry
 import json
 import logging
@@ -896,3 +901,321 @@ def _generate_workflow_code(defn: WorkflowDefinition) -> str:
     all_lines += build_lines + main_lines
 
     return '\n'.join(all_lines)
+SESSIONS: dict[str, ChatSession] = {}
+MESSAGES: dict[str, list[ChatMessage]] = {}
+def get_or_create_session(session_id: str) -> ChatSession:
+    if session_id not in SESSIONS:
+        now = datetime.now().isoformat()
+        SESSIONS[session_id] = ChatSession(
+            id=session_id,
+            created_at=now,
+            updated_at=now
+        )
+        MESSAGES[session_id] = []
+    return SESSIONS[session_id]
+def save_message(session_id: str, role: str, content: str):
+    msg = ChatMessage(
+        id=str(uuid.uuid4()),
+        session_id=session_id,
+        role=role,
+        content=content
+    )
+    MESSAGES[session_id].append(msg)
+    return msg
+_COPILOT_SYSTEM_PROMPT = """\
+You are an Agentic Copilot for creating real Microsoft Agent Framework agents and workflows.
+
+Your job is to understand the user's request, maintain a structured TaskState, identify missing requirements, and decide what should happen next.
+
+Current TaskState:
+{TASK_STATE}
+
+Available Tools:
+{AVAILABLE_TOOLS}
+
+You MUST return ONLY one valid JSON object with exactly these fields:
+
+{{
+  "updated_task_state": {{
+    "goal": null,
+    "integrations": [],
+    "trigger": null,
+    "conditions": [],
+    "actions": [],
+    "approval_policy": null,
+    "schedule": null,
+    "output_requirements": [],
+    "constraints": [],
+    "missing_requirements": [],
+    "proposed_plan": null,
+    "status": "gathering_requirements"
+  }},
+  "decision": "ASK_USER",
+  "message_to_user": "",
+  "tool_name": "",
+  "tool_args": {{}}
+}}
+
+TASK STATE RULES:
+
+1. "updated_task_state" MUST contain the COMPLETE TaskState.
+   Never return only changed fields.
+
+2. "trigger" MUST be either null or an OBJECT.
+   NEVER make trigger a string.
+
+3. A trigger object should use this structure:
+
+   {{
+     "type": "trigger_type",
+     "name": "human readable name",
+     "config": {{}}
+   }}
+
+4. "actions" MUST ALWAYS be an ARRAY OF OBJECTS.
+   NEVER use an array of strings.
+
+5. Every action object should use this structure:
+
+   {{
+     "type": "tool_id_or_action_type",
+     "name": "human readable name",
+     "config": {{}}
+   }}
+
+6. "conditions" MUST ALWAYS be an ARRAY OF OBJECTS.
+   NEVER use an array of strings.
+
+7. "config" MUST ALWAYS be an OBJECT.
+
+8. Tool IDs MUST come from the Available Tools list.
+   NEVER invent a tool ID.
+
+9. If the user requests an operation that requires a registered tool,
+   use the exact tool ID from Available Tools.
+
+10. For example, if Available Tools contains:
+
+   gmail_send
+
+   then an email sending action may be represented as:
+
+   {{
+     "type": "gmail_send",
+     "name": "إرسال البريد الإلكتروني",
+     "config": {{}}
+   }}
+
+11. Do NOT represent actions like this:
+
+   "actions": [
+     "الرد التلقائي على البريد الإلكتروني"
+   ]
+
+   That is INVALID.
+
+12. The correct representation is:
+
+   "actions": [
+     {{
+       "type": "gmail_send",
+       "name": "الرد التلقائي على البريد الإلكتروني",
+       "config": {{}}
+     }}
+   ]
+
+13. Do not invent critical information.
+   For example, do not invent:
+   - email addresses
+   - email subject
+   - email body
+   - schedules
+   - conditions
+   - credentials
+
+14. If required information is missing:
+   - add it to "missing_requirements"
+   - set decision to "ASK_USER"
+   - ask for it using "message_to_user"
+   - keep status as "gathering_requirements"
+
+15. If all required information is available:
+   - set decision to "BUILD_AGENT"
+   - set status to "ready_for_building"
+
+16. "tool_name" MUST be an empty string unless decision is "CALL_TOOL".
+
+17. "tool_args" MUST be an empty object unless decision is "CALL_TOOL".
+
+18. Preserve information already present in TaskState unless the user explicitly changes it.
+
+19. The user's language should be preserved in:
+   - goal
+   - trigger.name
+   - action.name
+   - message_to_user
+   - missing_requirements
+   - proposed_plan descriptions
+
+20. Return ONLY JSON.
+   Do not return Markdown.
+   Do not use ```json.
+   Do not add explanations outside the JSON.
+"""
+async def run_copilot_turn(session_id: str, user_message: str):
+    session = get_or_create_session(session_id)
+    save_message(session_id, "user", user_message)
+
+    history = MESSAGES[session_id][-10:]
+    formatted_history = "\n".join(
+        f"{m.role}: {m.content}"
+        for m in history
+    )
+
+    # Build the real tool catalog from the registered tools.
+    tool_catalog = "\n".join(
+        f"- {tool['function']['name']}: {tool['function']['description']}"
+        for tool in ToolRegistry.get_all_llm_schemas()
+    )
+
+    if not tool_catalog:
+        tool_catalog = "- No tools are currently registered."
+
+    # Give the Copilot the current state AND the real available tools.
+    prompt = _COPILOT_SYSTEM_PROMPT.format(
+        TASK_STATE=session.task_state.model_dump_json(),
+        AVAILABLE_TOOLS=tool_catalog,
+    )
+
+    user_prompt = (
+        f"History:\n{formatted_history}\n\n"
+        f"New Message: {user_message}"
+    )
+
+    response_data = await chat_completion_json(
+        prompt,
+        user_prompt
+    )
+
+    updated_state_dict = response_data.get(
+        "updated_task_state",
+        {}
+    )
+
+    decision = response_data.get(
+        "decision",
+        "CHAT"
+    )
+
+    message_to_user = response_data.get(
+        "message_to_user",
+        ""
+    )
+
+    # Validate the LLM output against the real TaskState schema.
+    session.task_state = TaskState(
+        **updated_state_dict
+    )
+
+    session.updated_at = datetime.now().isoformat()
+
+    if decision in ["ASK_USER", "CHAT"]:
+        save_message(
+            session_id,
+            "assistant",
+            message_to_user
+        )
+
+        return {
+            "status": "waiting_for_user",
+            "decision": decision,
+            "message": message_to_user,
+            "state": session.task_state.model_dump()
+        }
+
+    elif decision == "BUILD_AGENT":
+        save_message(
+            session_id,
+            "assistant",
+            "All requirements gathered. Generating the Agent Definition now..."
+        )
+
+        # 1. تحويل المتطلبات إلى نص
+        state_str = json.dumps(session.task_state.model_dump(), ensure_ascii=False)
+        build_prompt = f"قم ببناء وكيل بناءً على المتطلبات والمواصفات التالية:\n{state_str}"
+        
+        # 2. استدعاء دالة البناء القديمة لتوليد الملفات فعلياً
+        agent_res = await create_agent_from_prompt(build_prompt)
+
+        return {
+            "status": "building",
+            "decision": decision,
+            "message": f"ممتاز! لقد قمت بإنشاء الوكيل «{agent_res.name}» بنجاح وبناء ملفاته.",
+            "state": session.task_state.model_dump(),
+            "agent": agent_res.model_dump() # إرسال تفاصيل الوكيل للفرونت إند
+        }
+    elif decision == "CALL_TOOL":
+        tool_name = response_data.get("tool_name")
+        tool_args = response_data.get("tool_args", {})
+
+        return {
+            "status": "executing_tool",
+            "decision": decision,
+            "tool": tool_name,
+            "args": tool_args,
+            "state": session.task_state.model_dump()
+        }
+
+    return {
+        "status": "error",
+        "message": "Unknown decision"
+    }
+
+    if not tool_catalog:
+        tool_catalog = "- No tools are currently registered."
+
+        prompt = _COPILOT_SYSTEM_PROMPT.format(
+            TASK_STATE=session.task_state.model_dump_json(),
+            AVAILABLE_TOOLS=tool_catalog,
+        )
+        user_prompt = f"History:\n{formatted_history}\n\nNew Message: {user_message}"
+        
+        response_data = await chat_completion_json(prompt, user_prompt)
+        
+        updated_state_dict = response_data.get("updated_task_state", {})
+        decision = response_data.get("decision", "CHAT")
+        message_to_user = response_data.get("message_to_user", "")
+        
+        session.task_state = TaskState(**updated_state_dict)
+        session.updated_at = datetime.now().isoformat()
+        
+        if decision in ["ASK_USER", "CHAT"]:
+            save_message(session_id, "assistant", message_to_user)
+            return {
+                "status": "waiting_for_user",
+                "decision": decision,
+                "message": message_to_user,
+                "state": session.task_state.model_dump()
+            }
+            
+        elif decision == "BUILD_AGENT":
+            save_message(session_id, "assistant", "All requirements gathered. Generating the Agent Definition now...")
+            # يمكنك هنا استدعاء create_agent_from_prompt لبناء الوكيل فعلياً
+            return {
+                "status": "building",
+                "decision": decision,
+                "message": "ممتاز! تم جمع كل المتطلبات. جاري بناء الوكيل الآن...",
+                "state": session.task_state.model_dump()
+            }
+            
+        elif decision == "CALL_TOOL":
+            tool_name = response_data.get("tool_name")
+            tool_args = response_data.get("tool_args", {})
+            return {
+                "status": "executing_tool",
+                "decision": decision,
+                "tool": tool_name,
+                "args": tool_args,
+                "state": session.task_state.model_dump()
+            }
+        return {"status": "error", "message": "Unknown decision"}

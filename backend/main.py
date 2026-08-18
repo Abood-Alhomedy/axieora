@@ -1,6 +1,10 @@
 """FastAPI application – API endpoints for Agent & Workflow creation."""
-
 from __future__ import annotations
+from orchestrator import run_copilot_turn
+
+
+from models import ChatRequest
+# from conversational_orchestrator import run_copilot_turn
 
 import asyncio
 import json
@@ -217,7 +221,18 @@ async def get_workflow(name: str):
         "code": code,
     }
 
-
+@app.post("/api/copilot")
+async def copilot_chat(req: ChatRequest):
+    """
+    Agentic Copilot Endpoint.
+    Manages session state internally and returns the LLM's structured decision.
+    """
+    try:
+        result = await run_copilot_turn(req.session_id, req.message)
+        return result
+    except Exception as exc:
+        logger.exception("Copilot interaction failed")
+        raise HTTPException(500, str(exc))
 @app.delete("/api/workflows/{name}")
 async def delete_workflow(name: str):
     """Delete a workflow."""

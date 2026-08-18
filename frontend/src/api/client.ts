@@ -1,5 +1,5 @@
 const API_BASE = '/api';
-
+const sessionId = crypto.randomUUID();
 export interface AgentDefinition {
   name: string;
   description: string;
@@ -48,12 +48,20 @@ export interface WorkflowCreateResponse {
 }
 
 // ── Agents ────────────────────────────────────────────────────────────────
+export interface CopilotResponse {
+  status: 'waiting_for_user' | 'building' | 'executing_tool' | 'error';
+  decision: string;
+  message: string;
+  state: any;
+  agent?: AgentCreateResponse; // <-- أضف هذا السطر هنا
+}
 
-export async function createAgentFromPrompt(prompt: string): Promise<AgentCreateResponse> {
-  const res = await fetch(`${API_BASE}/agents`, {
+export async function sendCopilotMessage(message: string): Promise<CopilotResponse> {
+  const res = await fetch(`${API_BASE}/copilot`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
+    // لاحظ استخدام 'message' وليس 'prompt' ليتوافق مع ChatRequest في الباك إند
+    body: JSON.stringify({ message, session_id: sessionId }), 
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
