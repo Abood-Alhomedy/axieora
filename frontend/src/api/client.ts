@@ -48,10 +48,22 @@ export interface WorkflowCreateResponse {
 }
 
 // ── Agents ────────────────────────────────────────────────────────────────
+export interface CopilotQuestionOption {
+  label: string;
+  value: string;
+}
+
+export interface CopilotQuestion {
+  id: string;
+  question: string;
+  options: CopilotQuestionOption[];
+  default_value: string | null;
+}
 export interface CopilotResponse {
   status: 'waiting_for_user' | 'building' | 'executing_tool' | 'error';
   decision: string;
   message: string;
+  questions: CopilotQuestion[];
   state: any;
   agent?: AgentCreateResponse; // <-- أضف هذا السطر هنا
 }

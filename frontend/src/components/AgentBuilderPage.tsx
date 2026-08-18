@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
+
+type CopilotQuestion,
+type CopilotQuestionOption,
   sendCopilotMessage, // ← أضف هذا
   // ... باقي الاستيرادات
 } from '../api/client'
@@ -21,6 +24,7 @@ type TabMode = 'chat' | 'manual'
 interface BuilderMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
+  questions?: CopilotQuestion[]
   agentResult?: AgentCreateResponse | null
 }
 
@@ -160,6 +164,66 @@ export default function AgentBuilderPage() {
 
    // ── إرسال رسالة إلى دردشة بناء الوكيل ──
     // ── إرسال رسالة إلى دردشة بناء الوكيل ──
+    const handleCopilotOptionSelect = async (
+  question: CopilotQuestion,
+  option: CopilotQuestionOption
+) => {
+  if (loading) return
+
+  const userMessage = option.label
+
+  const userMsg: BuilderMessage = {
+    role: 'user',
+    content: option.label,
+  }
+
+  setBuilderMessages(prev => [
+    ...prev,
+    userMsg,
+  ])
+
+  setLoading(true)
+
+  try {
+    const res = await sendCopilotMessage(
+      userMessage
+    )
+
+    const assistantMsg: BuilderMessage = {
+      role: 'assistant',
+      content: res.message,
+      questions: res.questions ?? [],
+    }
+
+    setBuilderMessages(prev => [
+      ...prev,
+      assistantMsg,
+    ])
+
+    if (res.status === 'building' && res.agent) {
+      setResult(res.agent)
+
+      setSelectedAgent({
+        name: res.agent.name,
+        definition:
+          res.agent.definition as unknown as Record<string, unknown>,
+        code: res.agent.code,
+      })
+
+      refreshList()
+    }
+  } catch (e: any) {
+    setBuilderMessages(prev => [
+      ...prev,
+      {
+        role: 'assistant',
+        content: `❌ حدث خطأ: ${e.message}`,
+      },
+    ])
+  } finally {
+    setLoading(false)
+  }
+}
   const handleBuilderSend = async () => {
     if (!builderInput.trim() || loading) return
     const userMsg: BuilderMessage = { role: 'user', content: builderInput.trim() }
@@ -177,6 +241,7 @@ export default function AgentBuilderPage() {
         const assistantMsg: BuilderMessage = {
           role: 'assistant',
           content: res.message, // رسالة الكوبايلوت (قد تكون سؤالاً توضيحياً)
+          questions: res.questions ?? [],
         }
         setBuilderMessages(prev => [...prev, assistantMsg])
 
@@ -519,6 +584,49 @@ export default function AgentBuilderPage() {
                     <div className="builder-msg-content">
                       {msg.content}
                     </div>
+                    {msg.questions && msg.questions.length > 0 && (
+  <div className="copilot-questions">
+    {msg.questions.map(question => (
+      <div
+        key={question.id}
+        className="copilot-question"
+      >
+        <div className="copilot-question-text">
+          {question.question}
+        </div>
+
+        <div className="copilot-options">
+          {question.options.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              className={
+                option.value === question.default_value
+                  ? 'copilot-option copilot-option-default'
+                  : 'copilot-option'
+              }
+              onClick={() =>
+                handleCopilotOptionSelect(
+                  question,
+                  option
+                )
+              }
+              disabled={loading}
+            >
+              <span>
+                {option.label}
+              </span>
+
+              {option.value === question.default_value && (
+                <small>مقترح</small>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    ))}
+  </div>
+)}
                   </div>
                 ))}
 

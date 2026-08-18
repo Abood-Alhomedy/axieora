@@ -952,6 +952,7 @@ You MUST return ONLY one valid JSON object with exactly these fields:
   }},
   "decision": "ASK_USER",
   "message_to_user": "",
+  "questions": [],
   "tool_name": "",
   "tool_args": {{}}
 }}
@@ -1042,12 +1043,126 @@ TASK STATE RULES:
 15. If all required information is available:
    - set decision to "BUILD_AGENT"
    - set status to "ready_for_building"
+   BUILD READINESS RULES:
+
+15A. "BUILD_AGENT" is a strict decision and MUST NOT be used
+     unless the agent requirements are sufficiently specified.
+
+15B. A generic intention to create an agent is NOT sufficient.
+
+     For example:
+
+     "اريد وكيل"
+     "أريد إنشاء وكيل"
+     "أريد Agent"
+     "أريد وكيل للذكاء الاصطناعي"
+
+     MUST result in:
+
+     - decision = "ASK_USER"
+     - status = "gathering_requirements"
+     - non-empty "missing_requirements"
+     - a useful "message_to_user"
+     - "questions" when predefined choices are useful
+15C. Before "BUILD_AGENT", the following must be sufficiently
+     known from the user's conversation:
+
+     - the specific goal or responsibility of the agent
+     - what action or actions the agent should perform
+     - what should trigger the agent, ONLY IF the agent's behavior
+       depends on an explicit trigger (e.g. schedule, webhook, event).
+       A simple on-demand/reactive agent does NOT require a trigger.
+     - required integrations or tools, when the requested behavior
+       depends on them
+
+15D. Do NOT consider a requirement satisfied merely because the
+     corresponding TaskState field exists.
+
+     A field containing null, an empty array, an empty object,
+     or a vague generic value does NOT satisfy a required
+     requirement.
+
+15E. If the user's goal is vague or generic, the goal is NOT
+     considered sufficiently specified.
+
+15F. If the trigger is unknown and the agent's behavior depends
+     on a trigger, ask the user for the trigger.
+
+15G. If the required action is unknown, ask the user what the
+     agent should do.
+
+15H. If a required integration or tool is unknown but can be
+     determined from the user's intended behavior, ask the user
+     instead of assuming one.
+
+15I. When any essential requirement is missing or ambiguous:
+
+     - decision MUST be "ASK_USER"
+     - status MUST remain "gathering_requirements"
+     - add the missing information to "missing_requirements"
+     - ask the user for the missing information
+     - do NOT generate an agent
+     - do NOT call the agent creation process
+
+15J. Never infer that the agent is ready merely because the user
+     used words such as "create", "build", "make", or "I want an
+     agent".
+
+15K. The following example MUST produce ASK_USER:
+
+     User:
+     "اريد وكيل"
+
+     Correct reasoning:
+
+     - specific goal is missing
+     - trigger is missing
+     - action is missing
+
+     Therefore:
+
+     - decision = "ASK_USER"
+     - status = "gathering_requirements"
+     - missing_requirements is NOT empty
+
+15L. Only use "BUILD_AGENT" after the conversation contains
+     enough concrete information to create a useful agent without
+     inventing critical requirements.
 
 16. "tool_name" MUST be an empty string unless decision is "CALL_TOOL".
 
 17. "tool_args" MUST be an empty object unless decision is "CALL_TOOL".
 
 18. Preserve information already present in TaskState unless the user explicitly changes it.
+18A. Never mark a requirement as satisfied based only on an
+     assumption or generic wording.
+
+18B. Empty arrays, null values, and vague generic text must remain
+     unresolved when that information is required to build the agent.
+
+18C. "missing_requirements" MUST accurately describe all essential
+     information that is still unknown.
+18D. When decision is "ASK_USER", "missing_requirements" should
+     normally contain at least one concrete missing requirement.
+
+18E. Distinguish between the user's intention to create an agent
+     and the actual goal of the agent.
+
+     Example:
+
+     "اريد وكيل"
+
+     means the user wants to create an agent, but it does NOT
+     specify the agent's goal.
+
+     Therefore it MUST NOT be treated as a completed "goal".
+
+     Example:
+
+     "أريد وكيلاً يرد تلقائياً على رسائل العملاء عبر Gmail"
+
+     contains an actual agent goal and may satisfy the goal
+     requirement, but other requirements may still be missing.
 
 19. The user's language should be preserved in:
    - goal
@@ -1056,11 +1171,213 @@ TASK STATE RULES:
    - message_to_user
    - missing_requirements
    - proposed_plan descriptions
-
 20. Return ONLY JSON.
    Do not return Markdown.
    Do not use ```json.
    Do not add explanations outside the JSON.
+
+21. Valid values for "decision" are exactly:
+    "ASK_USER", "BUILD_AGENT", "CALL_TOOL", or "CHAT"
+    (use "CHAT" only for conversational replies that don't change
+    TaskState and don't require gathering more info, e.g. greetings
+    or clarifying small talk).
+
+QUESTION / OPTIONS RULES:
+1. When decision is "ASK_USER", determine whether the missing
+   requirement can reasonably be represented by a small set of
+   predefined choices.
+
+2. If predefined choices are useful, return them in the
+   "questions" field.
+
+3. "questions" MUST always be an array.
+
+4. Each question MUST have this structure:
+
+{{
+  "id": "unique_question_id",
+  "question": "Human-readable question",
+  "options": [
+   {{
+      "label": "Human-readable option",
+      "value": "machine-readable value"
+    }}
+  ],
+  "default_value": "value_of_suggested_option"
+}}
+
+5. "default_value" is ONLY a recommended option.
+
+6. NEVER treat "default_value" as the user's answer.
+
+7. NEVER update TaskState using "default_value" unless the user
+   explicitly selects that option.
+
+8. The user is ALWAYS allowed to answer using the normal chat
+   input, even when predefined options are displayed.
+
+9. The predefined options are only shortcuts that make answering
+   easier and faster.
+
+10. If the user writes a custom answer instead of selecting one
+    of the options, treat the user's written answer as the actual
+    answer.
+
+11. Never reject a user's custom answer merely because it is not
+    one of the predefined options.
+
+12. Do NOT create a separate "custom answer" UI or require the
+    user to choose from the predefined options.
+
+13. The existing chat input remains the primary free-form input.
+
+14. "label" is the text displayed to the user.
+
+15. "value" is the machine-readable value used internally.
+
+16. "default_value" MUST either match one of the option values or
+    be null.
+
+17. If there is no reasonable suggested option, use null for
+    "default_value".
+
+18. Use approximately 2-5 options when choices are useful.
+
+19. Do not generate options merely for the sake of generating
+    options.
+
+    However, when the missing requirement can be reasonably
+    narrowed down using common categories or choices, you SHOULD
+    provide 2-5 predefined options.
+
+    Examples include:
+
+    - type or category of agent
+    - type of trigger
+    - type of integration
+    - type of action
+    - communication channel
+    - common workflow type
+
+    The options are suggestions only. The user can always provide
+    a completely different free-form answer through the normal
+    chat input.
+
+20. If the user only says that they want an agent and the agent
+    goal is unknown, prefer asking:
+
+    "ما نوع المهمة التي تريد أن ينفذها الوكيل؟"
+
+    and provide useful starter options when possible.
+
+21. If the missing requirement genuinely cannot be represented
+    by a small set of reasonable choices, return:
+
+    "questions": []
+
+    and ask for the information using "message_to_user".
+
+22. Never omit useful predefined options merely because the user
+    can provide a free-form answer.
+23. The question and option labels MUST use the same language as
+    the user's request.
+
+24. Do not put the options inside "message_to_user". Options
+    belong exclusively to "questions".
+
+25. When the user explicitly selects one of the predefined
+    options, treat that selected option as the user's answer.
+
+26. When the user writes a free-form answer, use the free-form
+    answer as the user's answer even if it does not match any
+    predefined option.
+
+27. Never assume that the user selected the default option merely
+    because it was marked as default.
+     USER OPTION SELECTION:
+
+When the user response represents a selected predefined option,
+the system may receive:
+
+{{
+  "question_id": "...",
+  "answer": "...",
+  "answer_label": "..."
+}}
+EXAMPLE — GENERIC AGENT REQUEST:
+
+User:
+"اريد وكيل"
+
+Correct response:
+
+{{
+  "updated_task_state": {{
+    "goal": null,
+    "integrations": [],
+    "trigger": null,
+    "conditions": [],
+    "actions": [],
+    "approval_policy": null,
+    "schedule": null,
+    "output_requirements": [],
+    "constraints": [],
+    "missing_requirements": [
+      "الهدف المحدد للوكيل"
+    ],
+    "proposed_plan": null,
+    "status": "gathering_requirements"
+  }},
+  "decision": "ASK_USER",
+  "message_to_user": "ما نوع المهمة التي تريد أن ينفذها الوكيل؟",
+  "questions": [
+    {{
+      "id": "agent_goal",
+      "question": "ما نوع المهمة التي تريد أن ينفذها الوكيل؟",
+      "options": [
+        {{
+          "label": "خدمة العملاء",
+          "value": "customer_support"
+        }},
+        {{
+          "label": "البريد الإلكتروني",
+          "value": "email_automation"
+        }},
+        {{
+          "label": "متابعة الطلبات",
+          "value": "order_followup"
+        }},
+        {{
+          "label": "المبيعات",
+          "value": "sales"
+        }}
+      ],
+      "default_value": null
+    }}
+  ],
+  "tool_name": "",
+  "tool_args": {{}}
+}}
+In this case:
+
+- "answer" is the selected machine-readable value.
+- "answer_label" is the human-readable selected option.
+- Treat the selected option as the user's explicit answer.
+- Update TaskState based on the selected answer.
+- Do not treat default_value as an answer unless the user
+  explicitly selected that option.
+  QUESTION CONTINUATION:
+
+After the user explicitly answers a question, do not ask the
+same question again unless the user's answer is ambiguous or
+incomplete.
+
+If the answer satisfies the missing requirement:
+
+- update TaskState
+- remove that requirement from missing_requirements
+- continue gathering the next missing requirement
+- or build the agent if all requirements are satisfied
 """
 async def run_copilot_turn(session_id: str, user_message: str):
     session = get_or_create_session(session_id)
@@ -1111,7 +1428,10 @@ async def run_copilot_turn(session_id: str, user_message: str):
         "message_to_user",
         ""
     )
-
+    questions = response_data.get(
+        "questions",
+        []
+    )
     # Validate the LLM output against the real TaskState schema.
     session.task_state = TaskState(
         **updated_state_dict
@@ -1123,14 +1443,16 @@ async def run_copilot_turn(session_id: str, user_message: str):
         save_message(
             session_id,
             "assistant",
-            message_to_user
+            message_to_user,
+       
         )
 
         return {
             "status": "waiting_for_user",
             "decision": decision,
             "message": message_to_user,
-            "state": session.task_state.model_dump()
+            "questions": questions,
+            "state": session.task_state.model_dump(),
         }
 
     elif decision == "BUILD_AGENT":
@@ -1171,51 +1493,51 @@ async def run_copilot_turn(session_id: str, user_message: str):
         "message": "Unknown decision"
     }
 
-    if not tool_catalog:
-        tool_catalog = "- No tools are currently registered."
+    # if not tool_catalog:
+    #     tool_catalog = "- No tools are currently registered."
 
-        prompt = _COPILOT_SYSTEM_PROMPT.format(
-            TASK_STATE=session.task_state.model_dump_json(),
-            AVAILABLE_TOOLS=tool_catalog,
-        )
-        user_prompt = f"History:\n{formatted_history}\n\nNew Message: {user_message}"
+    #     prompt = _COPILOT_SYSTEM_PROMPT.format(
+    #         TASK_STATE=session.task_state.model_dump_json(),
+    #         AVAILABLE_TOOLS=tool_catalog,
+    #     )
+    #     user_prompt = f"History:\n{formatted_history}\n\nNew Message: {user_message}"
         
-        response_data = await chat_completion_json(prompt, user_prompt)
+    #     response_data = await chat_completion_json(prompt, user_prompt)
         
-        updated_state_dict = response_data.get("updated_task_state", {})
-        decision = response_data.get("decision", "CHAT")
-        message_to_user = response_data.get("message_to_user", "")
+    #     updated_state_dict = response_data.get("updated_task_state", {})
+    #     decision = response_data.get("decision", "CHAT")
+    #     message_to_user = response_data.get("message_to_user", "")
         
-        session.task_state = TaskState(**updated_state_dict)
-        session.updated_at = datetime.now().isoformat()
+    #     session.task_state = TaskState(**updated_state_dict)
+    #     session.updated_at = datetime.now().isoformat()
         
-        if decision in ["ASK_USER", "CHAT"]:
-            save_message(session_id, "assistant", message_to_user)
-            return {
-                "status": "waiting_for_user",
-                "decision": decision,
-                "message": message_to_user,
-                "state": session.task_state.model_dump()
-            }
+    #     if decision in ["ASK_USER", "CHAT"]:
+    #         save_message(session_id, "assistant", message_to_user)
+    #         return {
+    #             "status": "waiting_for_user",
+    #             "decision": decision,
+    #             "message": message_to_user,
+    #             "state": session.task_state.model_dump(),   
+    #         }
             
-        elif decision == "BUILD_AGENT":
-            save_message(session_id, "assistant", "All requirements gathered. Generating the Agent Definition now...")
-            # يمكنك هنا استدعاء create_agent_from_prompt لبناء الوكيل فعلياً
-            return {
-                "status": "building",
-                "decision": decision,
-                "message": "ممتاز! تم جمع كل المتطلبات. جاري بناء الوكيل الآن...",
-                "state": session.task_state.model_dump()
-            }
+    #     elif decision == "BUILD_AGENT":
+    #         save_message(session_id, "assistant", "All requirements gathered. Generating the Agent Definition now...")
+    #         # يمكنك هنا استدعاء create_agent_from_prompt لبناء الوكيل فعلياً
+    #         return {
+    #             "status": "building",
+    #             "decision": decision,
+    #             "message": "ممتاز! تم جمع كل المتطلبات. جاري بناء الوكيل الآن...",
+    #             "state": session.task_state.model_dump()
+    #         }
             
-        elif decision == "CALL_TOOL":
-            tool_name = response_data.get("tool_name")
-            tool_args = response_data.get("tool_args", {})
-            return {
-                "status": "executing_tool",
-                "decision": decision,
-                "tool": tool_name,
-                "args": tool_args,
-                "state": session.task_state.model_dump()
-            }
-        return {"status": "error", "message": "Unknown decision"}
+    #     elif decision == "CALL_TOOL":
+    #         tool_name = response_data.get("tool_name")
+    #         tool_args = response_data.get("tool_args", {})
+    #         return {
+    #             "status": "executing_tool",
+    #             "decision": decision,
+    #             "tool": tool_name,
+    #             "args": tool_args,
+    #             "state": session.task_state.model_dump()
+    #         }
+    #     return {"status": "error", "message": "Unknown decision"}

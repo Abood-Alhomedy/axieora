@@ -1963,3 +1963,64 @@ a:hover {
     font-size: 16px;
   }
 }
+.copilot-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.copilot-question {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.copilot-question-text {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.copilot-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.copilot-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  width: 100%;
+
+  padding: 9px 12px;
+
+  border: 1px solid var(--border);
+  border-radius: 8px;
+
+  background: var(--bg-panel-body);
+  color: var(--text-primary);
+
+  cursor: pointer;
+
+  text-align: right;
+}
+
+.copilot-option:hover {
+  border-color: var(--accent);
+}
+
+.copilot-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.copilot-option-default {
+  border-color: var(--accent);
+}
+
+.copilot-option small {
+  font-size: 10px;
+  opacity: 0.7;
+}
